@@ -221,3 +221,59 @@ class SNet146(nn.Module):
         x = x.view(-1, self.stage_out_channels[-1])
         x = self.classifier(x)
         return x
+
+class SNet535(nn.Module):
+    def __init__(self, n_class=1000, input_size=224):
+        super(SNet535, self).__init__()
+        assert input_size % 32 == 0
+
+        self.stage_repeats = [4, 8, 4]
+        
+        # index 0 is invalid and should never be called.
+        # only used for indexing convenience.
+        self.stage_out_channels = [-1, 48, 248, 496, 992, 1024]
+
+        # building first layer
+        input_channel = self.stage_out_channels[1]
+        self.conv1 = conv_bn(3, input_channel, 2)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+
+        self.features = []
+        # building inverted residual blocks
+        for idxstage in range(len(self.stage_repeats)):
+            numrepeat = self.stage_repeats[idxstage]
+            output_channel = self.stage_out_channels[idxstage+2]
+            for i in range(numrepeat):
+                if i == 0:
+                    # (inp, oup, stride, benchmodel)
+                    self.features.append(InvertedResidual(input_channel, output_channel, 2, 2))
+                else:
+                    self.features.append(InvertedResidual(input_channel, output_channel, 1, 1))
+                input_channel = output_channel
+
+        # make it nn.Sequential
+        self.features = nn.Sequential(*self.features)
+
+        # building last several layers
+        self.globalpool = nn.Sequential(nn.AvgPool2d(int(input_size/32)))
+
+        # building classifier
+        self.classifier = nn.Sequential(nn.Linear(self.stage_out_channels[-1], n_class))
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.maxpool(x)
+        x = self.features(x)    # stage2, stage3, stage4
+        x = self.globalpool(x)
+        x = x.view(-1, self.stage_out_channels[-1])
+        x = self.classifier(x)
+        return x
+
+    
+"""
+if __name__ == '__main__':
+    img = torch.randn(1, 3, 224, 224)
+    snet = ShuffleNetV2()
+    feature, out1, out2 = snet(img)
+    print(snet)
+"""        
